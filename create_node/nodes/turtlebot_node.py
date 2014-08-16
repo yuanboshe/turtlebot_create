@@ -52,6 +52,7 @@ import termios
 import time
 
 from math import sin, cos
+import math
 
 import rospkg
 import rospy
@@ -107,6 +108,12 @@ class TurtlebotNode(object):
             self._gyro = TurtlebotGyro()
         else:
             self._gyro = None
+        if self.has_imu:
+            from create_node.my6dof import My6dof
+            self.my6dof = My6dof('/dev/ttyUSB1')
+            time.sleep(1)
+            data = self.my6dof.read()
+            self.last_yaw = math.radians(data[0])
             
         dynamic_reconfigure.server.Server(TurtleBotConfig, self.reconfigure)
 
@@ -154,6 +161,7 @@ class TurtlebotNode(object):
         self.update_rate = rospy.get_param('~update_rate', self.default_update_rate)
         self.drive_mode = rospy.get_param('~drive_mode', 'twist')
         self.has_gyro = rospy.get_param('~has_gyro', True)
+        self.has_imu = rospy.get_param('~has_imu', True)
         self.odom_angular_scale_correction = rospy.get_param('~odom_angular_scale_correction', 1.0)
         self.odom_linear_scale_correction = rospy.get_param('~odom_linear_scale_correction', 1.0)
         self.cmd_vel_timeout = rospy.Duration(rospy.get_param('~cmd_vel_timeout', 0.6))
@@ -169,6 +177,7 @@ class TurtlebotNode(object):
         rospy.loginfo("update_rate: %s"%(self.update_rate))
         rospy.loginfo("drive mode: %s"%(self.drive_mode))
         rospy.loginfo("has gyro: %s"%(self.has_gyro))
+        rospy.loginfo("has imu: %s"%(self.has_imu))
 
     def _init_pubsub(self):
         self.joint_states_pub = rospy.Publisher('joint_states', JointState)
@@ -317,6 +326,17 @@ class TurtlebotNode(object):
 
     def sense(self, sensor_state):
         self.sensor_handler.get_all(sensor_state)
+        if self.has_imu:
+            if sensor_state.angle != 0:
+                data = self.my6dof.read()
+                yaw = math.radians(data[0])
+                sensor_state.angle = yaw - self.last_yaw
+                if sensor_state.angle > math.pi:
+                    sensor_state.angle = sensor_state.angle - 2 * math.pi
+                if sensor_state.angle < -math.pi:
+                    sensor_state.angle = sensor_state.angle + 2 * math.pi
+                self.last_yaw = yaw
+#                 print sensor_state.angle, ' ', yaw
         if self._gyro:
             self._gyro.update_calibration(sensor_state)
 
